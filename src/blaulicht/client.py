@@ -18,7 +18,8 @@ from . import __version__
 from .fehler import HttpFehler, NetzFehler, UsageFehler
 
 STANDARD_BASIS = "https://www.presseportal.de"
-USER_AGENT = f"blaulicht-cli/{__version__} (+https://github.com/smlfg/blaulicht-cli)"
+VERSION_KURZ = ".".join(__version__.split(".")[:2])
+USER_AGENT = f"blaulicht-cli/{VERSION_KURZ} (+https://github.com/smlfg/blaulicht-cli)"
 CACHE_TTL_SEKUNDEN = 300
 MINDESTABSTAND_SEKUNDEN = 1.0
 TIMEOUT_SEKUNDEN = 15.0

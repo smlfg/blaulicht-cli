@@ -34,8 +34,10 @@ def test_user_agent_nennt_repo(fake_server):
 
     assert "Offizielle News aus Heilbronn" in text
     assert fake_server.anfragen == ["/blaulicht/r/Heilbronn"]
-    assert instanz.session.headers["User-Agent"].startswith("blaulicht-cli/")
-    assert "github.com/smlfg/blaulicht-cli" in instanz.session.headers["User-Agent"]
+    assert (
+        instanz.session.headers["User-Agent"]
+        == "blaulicht-cli/0.1 (+https://github.com/smlfg/blaulicht-cli)"
+    )
 
 
 def test_cache_spart_zweiten_request(fake_server, umgebung):
