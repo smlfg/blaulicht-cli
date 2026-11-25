@@ -432,6 +432,16 @@ def cmd_dienststelle(args, out: Ausgabe) -> int:
     return 0
 
 
+def _state_speichern(zustand: dict) -> None:
+    try:
+        pfade.speichere_state(zustand)
+    except OSError as exc:
+        raise LaufzeitFehler(
+            f"Watch-Stand konnte nicht gespeichert werden: {exc}",
+            "Schreibrechte für das State-Verzeichnis prüfen",
+        ) from None
+
+
 def cmd_watch(args, out: Ausgabe) -> int:
     """Nur Meldungen, die seit dem letzten Aufruf neu sind."""
     ort = _ort_holen(args.ort)
@@ -444,7 +454,7 @@ def cmd_watch(args, out: Ausgabe) -> int:
     alt = zustand.get(ort)
     if not isinstance(alt, list):
         zustand[ort] = kennungen
-        pfade.speichere_state(zustand)
+        _state_speichern(zustand)
         objekt = {
             "ort": ort,
             "ausgangsstand": True,
@@ -462,7 +472,7 @@ def cmd_watch(args, out: Ausgabe) -> int:
     bekannt = set(alt)
     neue = [m for m in meldungen if m["kennung"] not in bekannt]
     zustand[ort] = list(dict.fromkeys([*alt, *kennungen]))
-    pfade.speichere_state(zustand)
+    _state_speichern(zustand)
 
     anzeige = neue[:limit]
     objekt = {
@@ -513,7 +523,13 @@ def cmd_config(args, out: Ausgabe) -> int:
                     "blaulicht config ort <ORT> ausführen",
                 )
             daten["ort"] = ort
-            pfade.speichere_config(daten)
+            try:
+                pfade.speichere_config(daten)
+            except OSError as exc:
+                raise LaufzeitFehler(
+                    f"Config konnte nicht gespeichert werden: {exc}",
+                    "Schreibrechte für das Config-Verzeichnis prüfen",
+                ) from None
             hinweis = f"Standard-Ort gespeichert: {ort}."
 
     objekt = _config_objekt(daten)
