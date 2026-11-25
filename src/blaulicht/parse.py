@@ -192,6 +192,21 @@ def parse_dienststellen(html: str) -> list[dict]:
     return ergebnis
 
 
+def naechste_seite(html: str) -> str:
+    """Link auf die Folgeseite einer Liste (leer, wenn es keine gibt)."""
+    soup = _soup(html)
+    link = soup.select_one('link[rel="next"][href]')
+    if link is not None:
+        return (link.get("href") or "").strip()
+    marke = soup.select_one(".pagination-next[data-url]")
+    if marke is not None:
+        roh = (marke.get("data-url") or "").strip()
+        if roh.startswith("@"):
+            roh = roh[1:].replace("@", "/")
+        return roh
+    return ""
+
+
 def bundesland_slug(land: str) -> str:
     """„Baden-Württemberg“ -> „baden-wuerttemberg“."""
     text = (land or "").strip().lower()

@@ -53,6 +53,37 @@ def test_unbekannte_kennung_ist_laufzeitfehler(fake_server, capsys):
     assert "nicht gefunden" in data["fehler"]
 
 
+def test_seit_folgt_folgeseiten_und_reicht_aeltere_treffer(
+    fake_server_seit, monkeypatch, capsys
+):
+    monkeypatch.setenv("BLAULICHT_HEUTE", "2026-11-25")
+
+    code = cli.main(
+        [
+            "suche",
+            "Unfall",
+            "--ort",
+            "Heilbronn",
+            "--seit",
+            "2025-01-01",
+            "--limit",
+            "50",
+            "--json",
+        ]
+    )
+
+    assert code == 0
+    data = _json(capsys)
+    kennungen = [treffer["kennung"] for treffer in data["treffer"]]
+    assert "110971/5961820" in kennungen
+    assert fake_server_seit.anfragen == [
+        "/blaulicht/r/Heilbronn",
+        "/blaulicht/r/Heilbronn/30",
+    ]
+    assert "startDate=2025-01-01" in fake_server_seit.anfragen_query[0]
+    assert "endDate=2026-11-25" in fake_server_seit.anfragen_query[0]
+
+
 def test_config_ungueltiger_schluessel_ist_usage(umgebung, capsys):
     code = cli.main(["config", "farbe", "rot", "--json"])
 

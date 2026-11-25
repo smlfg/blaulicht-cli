@@ -9,6 +9,7 @@ import os
 import re
 import sys
 from difflib import SequenceMatcher
+from urllib.parse import parse_qsl, urlsplit
 
 from . import __version__, pfade, parse
 from .client import Client
@@ -23,6 +24,7 @@ from .fehler import (
 
 DATUM_MUSTER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KENNUNG_ARG = re.compile(r"^(\d+)/(\d+)$")
+MAX_SEITEN = 60
 
 
 # ---------------------------------------------------------------------- Ausgabe
@@ -199,10 +201,12 @@ def cmd_neu(args, out: Ausgabe) -> int:
     return 0
 
 
+def _seit_ok(meldung: dict, seit: str | None) -> bool:
+    return not seit or bool(meldung.get("datum")) and meldung["datum"] >= seit
+
+
 def _seit_filter(meldungen: list[dict], seit: str | None) -> list[dict]:
-    if not seit:
-        return list(meldungen)
-    return [m for m in meldungen if m.get("datum") and m["datum"] >= seit]
+    return [m for m in meldungen if _seit_ok(m, seit)]
 
 
 def _enthaelt_stichwort(meldung: dict, stichwort: str) -> bool:
@@ -224,6 +228,24 @@ def _suche_ziel(args) -> tuple[str, str]:
     return parse.ort_pfad(ort), ort
 
 
+def _listen_seiten(client: Client, pfad: str, params: dict | None = None):
+    """HTML der Listenseite und ihrer Folgeseiten (max. MAX_SEITEN)."""
+    naechster_pfad = pfad
+    naechste_params = params
+    for _ in range(MAX_SEITEN):
+        html = client.get(naechster_pfad, params=naechste_params)
+        _pruefe_seite(html, naechster_pfad)
+        yield html
+        link = parse.naechste_seite(html)
+        if not link:
+            return
+        ziel = urlsplit(link)
+        if not ziel.path.startswith("/"):
+            return
+        naechster_pfad = ziel.path
+        naechste_params = dict(parse_qsl(ziel.query)) or None
+
+
 def cmd_suche(args, out: Ausgabe) -> int:
     """Stichwortsuche über Titel und Teaser, optional im Volltext."""
     stichwort = (args.stichwort or "").strip()
@@ -237,18 +259,32 @@ def cmd_suche(args, out: Ausgabe) -> int:
 
     pfad, ziel = _suche_ziel(args)
     client = Client()
-    meldungen = _seit_filter(_lade_liste(client, pfad), seit)
+    if seit:
+        seiten = _listen_seiten(
+            client, pfad, {"startDate": seit, "endDate": _heute()}
+        )
+    else:
+        seiten = iter([_lade_liste_html(client, pfad)])
 
     treffer: list[dict] = []
-    for meldung in meldungen:
-        passt = _enthaelt_stichwort(meldung, stichwort)
-        if not passt and args.volltext:
-            teile = meldung["kennung"].split("/")
-            if len(teile) == 2:
-                detail = _detail_laden(client, teile[0], teile[1])
-                passt = stichwort.casefold() in detail["volltext"].casefold()
-        if passt:
-            treffer.append(meldung)
+    gesehen: set[str] = set()
+    for html in seiten:
+        for meldung in parse.parse_liste(html, basis=client.basis):
+            if meldung["kennung"] in gesehen:
+                continue
+            gesehen.add(meldung["kennung"])
+            if not _seit_ok(meldung, seit):
+                continue
+            passt = _enthaelt_stichwort(meldung, stichwort)
+            if not passt and args.volltext:
+                teile = meldung["kennung"].split("/")
+                if len(teile) == 2:
+                    detail = _detail_laden(client, teile[0], teile[1])
+                    passt = stichwort.casefold() in detail["volltext"].casefold()
+            if passt:
+                treffer.append(meldung)
+            if len(treffer) >= limit:
+                break
         if len(treffer) >= limit:
             break
 

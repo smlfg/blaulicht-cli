@@ -104,6 +104,19 @@ def test_dienststellenverzeichnis_nutzt_title_attribut():
     assert all(e["name"] and e["id"].isdigit() for e in eintraege)
 
 
+def test_naechste_seite_liest_link_rel_next():
+    html = (
+        '<html><head><link rel="next" '
+        'href="/blaulicht/r/Heilbronn/30?startDate=2025-01-01&amp;endDate=2025-01-31">'
+        "</head></html>"
+    )
+    assert (
+        parse.naechste_seite(html)
+        == "/blaulicht/r/Heilbronn/30?startDate=2025-01-01&endDate=2025-01-31"
+    )
+    assert parse.naechste_seite("<html><body>keine Folgeseite</body></html>") == ""
+
+
 def test_bundesland_slug():
     assert parse.bundesland_slug("Baden-Württemberg") == "baden-wuerttemberg"
     assert parse.bundesland_slug("Thüringen") == "thueringen"

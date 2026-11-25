@@ -18,28 +18,38 @@ ROUTES = {
     "/blaulicht/dienststellen": "dienststellen.html",
     "/blaulicht/nr/110971": "dienststelle_110971.html",
 }
+SEIT_ROUTES = {
+    "/blaulicht/r/Heilbronn": "heilbronn_seit_liste.html",
+    "/blaulicht/r/Heilbronn/30": "heilbronn_seit_liste2.html",
+}
 
 
 class LokalerServer:
     """Fake-Server auf 127.0.0.1 mit den UX-Fixtures als Antworten."""
 
-    def __init__(self):
+    def __init__(self, routes: dict[str, str] | None = None):
+        self.routes = dict(routes or ROUTES)
         self.anfragen: list[str] = []
+        self.anfragen_query: list[str] = []
         self.basis = ""
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
     def start(self) -> "LokalerServer":
         anfragen = self.anfragen
+        anfragen_query = self.anfragen_query
+        routes = self.routes
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):  # noqa: D401 - leise
                 return
 
             def do_GET(self):  # noqa: N802 - Name von http.server
-                pfad = urlsplit(self.path).path
+                teile = urlsplit(self.path)
+                pfad = teile.path
                 anfragen.append(pfad)
-                datei = ROUTES.get(pfad)
+                anfragen_query.append(teile.query)
+                datei = routes.get(pfad)
                 if datei is None:
                     koerper = b"not found"
                     self.send_response(404)
@@ -76,10 +86,24 @@ def umgebung(monkeypatch, tmp_path):
     yield tmp_path
 
 
+def _starte_server(monkeypatch, routes: dict[str, str] | None = None):
+    server = LokalerServer(routes).start()
+    monkeypatch.setenv("BLAULICHT_BASE_URL", server.basis)
+    return server
+
+
 @pytest.fixture()
 def fake_server(monkeypatch):
-    server = LokalerServer().start()
-    monkeypatch.setenv("BLAULICHT_BASE_URL", server.basis)
+    server = _starte_server(monkeypatch)
+    try:
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture()
+def fake_server_seit(monkeypatch):
+    server = _starte_server(monkeypatch, SEIT_ROUTES)
     try:
         yield server
     finally:
