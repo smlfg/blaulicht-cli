@@ -2,14 +2,15 @@
 
 - Datum: 2026-11-25
 - Version: 0.1.0
-- Commit: `19c5fc5` (`docs(ux): UX-Gate-Bericht`)
+- Commit: `19c5fc5` (`docs(ux): UX-Gate-Bericht`), Nachprüfung nach
+  `bcae94e`, `2526fa6`, `ead22de`
 - Prüfer: separater QA-Durchlauf, Rolle „find -> file“ (keine Code-Fixes)
 - Installation: `pipx install git+https://github.com/smlfg/blaulicht-cli` in
   `./scratch/pipx`, Protokoll `scratch/qa/pipx-install.log`
 - Aufruf: ausschließlich über `PATH=$PWD/scratch/pipx/bin:$PATH`
 - Live-Zugriffe: nur lesende GET-Requests auf presseportal.de; lokale
   Schreibziele nur unter `./scratch/qa/`
-- Zusätzlich: `scratch/venv/bin/pytest -q` = 58 passed
+- Zusätzlich: `scratch/venv/bin/pytest -q` = 61 passed
 
 ## Befunde
 
@@ -26,7 +27,7 @@
 | Live `neu` | `blaulicht neu Heilbronn --limit 10` | plausible Meldungen für Heilbronn | OK | 10 Meldungen, 23.–25.11.2026, Polizeipräsidium Heilbronn |
 | Live `suche`-Filter (Stichwort) | `blaulicht suche Unfall --ort Heilbronn --limit 20 --json` | jeder Treffer enthält „Unfall“ | OK | anzahl 14; Treffer ohne „Unfall“ in Titel/Teaser: keine |
 | Live `--seit` (aktuell) | `blaulicht suche Unfall --ort Heilbronn --seit 2026-11-25 --json` | alle Treffer am/ab Tag | OK | anzahl 1; kein Datum < 2026-11-25 |
-| Live `--seit` (älter, Vollständigkeit) | `blaulicht suche Unfall --ort Heilbronn --seit 2025-01-01 --limit 100 --json` | auch ältere Treffer seit Datum | **FAIL** | anzahl 14, frühestes Datum 2026-11-11; Website liefert mit `startDate=2025-01-01&endDate=2025-01-31` u. a. `110971/5961820`, das fehlt |
+| Live `--seit` (älter, Vollständigkeit) | `blaulicht suche Unfall --ort Heilbronn --seit 2025-01-01 --limit 100 --json` | auch ältere Treffer seit Datum | OK (nach Fix `bcae94e`) | anzahl 100, frühestes Datum 2026-07-24; mit `--limit 1000` 709 Treffer, frühestes 2025-01-02, enthält `110971/5961820` (31.01.2025) |
 | Live `--bundesland` | `blaulicht suche Unfall --bundesland Baden-Württemberg --limit 5 --json`; zusätzlich Thüringen, Nordrhein-Westfalen | passende Landes-Meldungen | OK | BW/TH/NRW liefern jeweils plausible Dienststellen |
 | Live `--volltext` | `blaulicht suche Fahrbahn --ort Heilbronn --limit 5 --json` mit/ohne `--volltext` | ohne: nur Titel/Teaser; mit: auch Detailtreffer | OK | ohne 2 Treffer im Teaser; mit 5 Treffern, die nur im Volltext stehen |
 | Live `zeige` per Kennung | `blaulicht zeige 110971/6397786 --json` | Titel, Dienststelle, Datum, Volltext | OK | Kennung, „Polizeipräsidium Heilbronn“, 2026-11-25 12:29, Volltext 3826 Zeichen |
@@ -36,7 +37,7 @@
 | `config` und Vorrang | `blaulicht config ort Heilbronn`, `neu` ohne Ort, `BLAULICHT_ORT=… watch` | Config 0600, Ort wird genutzt, Env überschreibt | OK | Config 600; `neu` nutzt Heilbronn; Watch nutzt `BLAULICHT_ORT` |
 | Leerer Ort | `blaulicht neu Zzzz-kein-ort-12345` (PTY/live) | Exit 0, Hinweis Ort prüfen | OK | „Keine Meldungen … gefunden. Bitte Ort prüfen.“ |
 | Unbekannte Kennung (404) | `blaulicht zeige 110971/9999999 --json` | Exit 1, „nicht gefunden“, nächster Schritt | OK | Exit 1; `naechster_schritt` = `blaulicht neu <Ort> …` |
-| Unbekannte/gelöschte Kennung (410) | `blaulicht zeige 110971/1 --json` und `999999999/1 --json` | laut INTERFACE: Exit 1, „Meldung … nicht gefunden“ | **FAIL** | Exit 3; `"/blaulicht/pm/110971/1 liefert HTTP 410"`, nächster Schritt „Pfad prüfen …“ |
+| Unbekannte/gelöschte Kennung (410) | `blaulicht zeige 110971/1 --json` und `999999999/1 --json` | laut INTERFACE: Exit 1, „Meldung … nicht gefunden“ | OK (nach Fix `2526fa6`) | beide Exit 1; „Meldung … nicht gefunden.“ plus `naechster_schritt` = `blaulicht neu <Ort> …` |
 | Usage-Fehler | `suche Unfall --seit 2026-13-99`, `neu Heilbronn --limit 0`, `suche '' --ort Heilbronn`, `neu` ohne Ort, `blaulicht quatsch` | Exit 2, nächster Schritt, kein Traceback | OK | alle Exit 2 mit `naechster_schritt`; kein Traceback |
 | Netzfehler | `BLAULICHT_BASE_URL=http://127.0.0.1:1 blaulicht neu Heilbronn --json` | Exit 3, Meldung + nächster Schritt, kein Traceback | OK | Exit 3; „Verbindung … fehlgeschlagen“, Hinweis „später erneut versuchen …“ |
 | TTY-Auswahl `zeige` | `blaulicht zeige Unfall --ort Heilbronn` (PTY, Fake) | Nummernliste, ungültige Eingabe erneut, dann Detail | OK | „Bitte eine Zahl von 1 bis 2“; danach gewählter Treffer |
@@ -44,29 +45,30 @@
 | JSON-Vertrag | `--json` sowie Pipe-Ausgabe für `neu`, `suche`, `zeige`, `dienststelle`, `watch`, `config`, Fehler | genau ein valides JSON-Objekt | OK | alle mit `json.load` geprüft; Fehlerobjekt enthält `fehler`, `exit`, `naechster_schritt` |
 | Text statt JSON im TTY | `script -qc 'blaulicht neu Heilbronn --limit 3'` | lesbarer Text, kein JSON | OK | nummerierte Textliste; kein JSON |
 | Fixtures ohne echte Personendaten | Stichprobe `tests/fixtures/ux/*.html` | nur anonymisierte Kontakte | OK | Telefon `000`, E-Mail/URL `example.invalid` |
-| User-Agent | lokaler Recorder, `blaulicht neu Heilbronn` | `blaulicht-cli/0.1 (+https://github.com/smlfg/blaulicht-cli)` laut README/INTERFACE | **FAIL** | gesendet: `blaulicht-cli/0.1.0 (+https://github.com/smlfg/blaulicht-cli)` |
-| Testsuite | `scratch/venv/bin/pytest -q` | grün | OK | `58 passed in 53.07s` |
+| User-Agent | lokaler Recorder, `blaulicht neu Heilbronn` | `blaulicht-cli/0.1 (+https://github.com/smlfg/blaulicht-cli)` laut README/INTERFACE | OK (nach Fix `ead22de`) | gesendet: `blaulicht-cli/0.1 (+https://github.com/smlfg/blaulicht-cli)` |
+| Testsuite | `scratch/venv/bin/pytest -q` | grün | OK | `61 passed` (nach Fixes) |
 | UX-Spec statisch | `python3 tests/harness/ux_check.py . --spec-only` | PASS | OK | UX01/UX06/UX07 PASS, Rest SKIP |
 
 ## Zählung
 
-- OK: 29
-- FAIL: 3
+- OK: 32
+- FAIL: 0
 - Gesamt: 32
 
-## Offene FAILs
+## Nachprüfung der FAILs
 
-1. **`--seit` erreicht ältere Meldungen nicht.** Die Suche lädt nur die erste
-   Listenseite und filtert clientseitig. Ältere, auf der Website über
-   `startDate`/`endDate` erreichbare Meldungen fehlen stillschweigend.
-   Repro: `blaulicht suche Unfall --ort Heilbronn --seit 2025-01-01 --limit 100 --json`
-   liefert 14 Treffer ab 2026-11-11; `110971/5961820` (31.01.2025) fehlt.
-2. **HTTP 410 wird nicht als „unbekannte Kennung“ behandelt.**
-   `blaulicht zeige 110971/1 --json` endet mit Exit 3 und „Pfad prüfen“,
-   obwohl INTERFACE für unbekannte Kennungen Exit 1 und
-   „Meldung … nicht gefunden“ mit sinnvollem nächsten Schritt verlangt.
-3. **User-Agent weicht von der Doku ab.** Gesendet wird
-   `blaulicht-cli/0.1.0`, README/INTERFACE nennen `blaulicht-cli/0.1`.
+1. **`--seit` erreicht ältere Meldungen jetzt.** Fix `bcae94e` nutzt den
+   Datumsbereich der Website (`startDate`/`endDate`) und folgt dem
+   `next`-Link der Liste. Live erneut geprüft:
+   `--limit 100` liefert 100 Treffer bis 2026-07-24; `--limit 1000` liefert
+   709 Treffer bis 2025-01-02, darunter `110971/5961820` (31.01.2025).
+2. **HTTP 410 ist jetzt „unbekannte Kennung“.** Fix `2526fa6` behandelt 410
+   wie 404: Exit 1, „Meldung … nicht gefunden.“ und
+   `naechster_schritt` = `blaulicht neu <Ort> …`. Beide Kennungen live
+   geprüft.
+3. **User-Agent stimmt jetzt mit der Doku.** Fix `ead22de` sendet
+   `blaulicht-cli/0.1 (+https://github.com/smlfg/blaulicht-cli)`, live über
+   einen lokalen Recorder bestätigt.
 
 ## Nicht als FAIL gewertet (Hinweise)
 
@@ -75,5 +77,5 @@
   Das entspricht INTERFACE, ist aber ein Bedienbarkeitsrisiko.
 - `watch` nutzt den 5-Minuten-Cache; unmittelbar nach einer Meldung kann ein
   zweiter Aufruf sie noch nicht als neu sehen. Der Cache ist dokumentiert.
-- `BLAULICHT_HEUTE` ist in `INTERFACE.md` als Testvariable genannt, wird im
-  Code aber von keinem Befehl ausgewertet (derzeit ohne Auswirkung).
+- `BLAULICHT_HEUTE` ist in `INTERFACE.md` als Testvariable genannt und wird
+  jetzt für das Enddatum des `--seit`-Datumsbereichs ausgewertet.
