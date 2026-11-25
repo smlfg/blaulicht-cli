@@ -483,6 +483,52 @@ def cmd_watch(args, out: Ausgabe) -> int:
     return 0
 
 
+def _config_objekt(daten: dict) -> dict:
+    return {
+        "config_pfad": str(pfade.config_pfad()),
+        "state_pfad": str(pfade.state_pfad()),
+        "cache_pfad": str(pfade.cache_pfad()),
+        "ort": str(daten.get("ort") or ""),
+    }
+
+
+def cmd_config(args, out: Ausgabe) -> int:
+    """Standard-Ort speichern oder Pfade und Einstellungen anzeigen."""
+    schluessel = args.schluessel
+    wert = args.wert
+    daten = pfade.lade_config()
+    hinweis = ""
+
+    if schluessel is not None:
+        if schluessel != "ort":
+            raise UsageFehler(
+                f"Unbekannter Schlüssel: {schluessel}. Erlaubt ist nur: ort.",
+                "blaulicht config ort <ORT> ausführen",
+            )
+        if wert is not None:
+            ort = wert.strip()
+            if not ort:
+                raise UsageFehler(
+                    "Der Ort darf nicht leer sein.",
+                    "blaulicht config ort <ORT> ausführen",
+                )
+            daten["ort"] = ort
+            pfade.speichere_config(daten)
+            hinweis = f"Standard-Ort gespeichert: {ort}."
+
+    objekt = _config_objekt(daten)
+    ort_anzeige = objekt["ort"] or "(nicht gesetzt)"
+    text = (
+        f"{hinweis + chr(10) if hinweis else ''}"
+        f"Config: {objekt['config_pfad']}\n"
+        f"State:  {objekt['state_pfad']}\n"
+        f"Cache:  {objekt['cache_pfad']}\n"
+        f"Ort:    {ort_anzeige}"
+    )
+    out.zeige(objekt, text)
+    return 0
+
+
 # --------------------------------------------------------------------- Parser
 
 
@@ -597,6 +643,16 @@ def _bau_parser() -> argparse.ArgumentParser:
     )
     _json_flag(watch)
     watch.set_defaults(funktion=cmd_watch)
+
+    config = unter.add_parser(
+        "config", help="Standard-Ort speichern oder Pfade und Einstellungen anzeigen"
+    )
+    config.add_argument(
+        "schluessel", nargs="?", help="Einstellung, derzeit nur: ort"
+    )
+    config.add_argument("wert", nargs="?", help="neuer Wert, z. B. Heilbronn")
+    _json_flag(config)
+    config.set_defaults(funktion=cmd_config)
 
     return parser
 
