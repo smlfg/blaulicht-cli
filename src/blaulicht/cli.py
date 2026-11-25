@@ -13,12 +13,15 @@ from . import __version__, pfade, parse
 from .client import Client
 from .fehler import (
     BlaulichtFehler,
+    HttpFehler,
+    LaufzeitFehler,
     MehrdeutigFehler,
     NetzFehler,
     UsageFehler,
 )
 
 DATUM_MUSTER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+KENNUNG_ARG = re.compile(r"^(\d+)/(\d+)$")
 
 
 # ---------------------------------------------------------------------- Ausgabe
@@ -65,6 +68,8 @@ def _fehler_ausgeben(fehler: BlaulichtFehler, json_modus: bool) -> int:
             objekt["treffer"] = fehler.treffer
         print(json.dumps(objekt, ensure_ascii=False))
     else:
+        if isinstance(fehler, MehrdeutigFehler) and fehler.treffer:
+            print(_liste_text(fehler.treffer))
         print(f"Fehler: {fehler.meldung}", file=sys.stderr)
         if fehler.naechster_schritt:
             print(f"Als Nächstes: {fehler.naechster_schritt}", file=sys.stderr)
@@ -254,6 +259,93 @@ def cmd_suche(args, out: Ausgabe) -> int:
     return 0
 
 
+def _kennung_zerlegen(text: str) -> tuple[str, str] | None:
+    treffer = KENNUNG_ARG.match((text or "").strip())
+    if treffer is None:
+        return None
+    return treffer.group(1), treffer.group(2)
+
+
+def _waehle(treffer: list[dict], was: str) -> dict:
+    """Nummerierte Auswahl im TTY; ohne TTY Liste und Exit 2."""
+    if not _ist_tty(sys.stdin):
+        raise MehrdeutigFehler(
+            f"{len(treffer)} Treffer für {was}.",
+            treffer,
+            "Suchbegriff präzisieren oder --erster verwenden",
+        )
+    for nummer, meldung in enumerate(treffer, 1):
+        print(f"{nummer}) {meldung['titel']}", file=sys.stderr)
+    while True:
+        print("Nummer wählen: ", end="", file=sys.stderr, flush=True)
+        zeile = sys.stdin.readline()
+        if zeile == "":
+            raise EOFError
+        zeile = zeile.strip()
+        if zeile.isdigit() and 1 <= int(zeile) <= len(treffer):
+            return treffer[int(zeile) - 1]
+        print(f"Bitte eine Zahl von 1 bis {len(treffer)} eingeben.", file=sys.stderr)
+
+
+def _detail_text(detail: dict) -> str:
+    zeilen = [detail["titel"]]
+    kopf = [detail.get("dienststelle") or "", ""]
+    kopf[1] = (
+        f"{parse.datum_text(detail.get('datum', ''))} {detail.get('zeit', '')}".strip()
+        + f" · {detail['kennung']}"
+    )
+    zeilen.append(" · ".join(teil for teil in kopf if teil))
+    if detail.get("volltext"):
+        zeilen.append(detail["volltext"])
+    return "\n".join(zeilen)
+
+
+def cmd_zeige(args, out: Ausgabe) -> int:
+    """Volltext einer Meldung über Kennung oder Titelstichwort."""
+    argument = (args.argument or "").strip()
+    if not argument:
+        raise UsageFehler(
+            "Keine Kennung und kein Titelstichwort angegeben.",
+            "blaulicht zeige <KENNUNG|TITELSTICHWORT> ausführen",
+        )
+    client = Client()
+    kennung = _kennung_zerlegen(argument)
+    if kennung is not None:
+        detail = _direkt_detail(client, *kennung)
+    else:
+        limit = _limit(args.limit)
+        ort = _ort_holen(args.ort)
+        meldungen = _lade_liste(client, parse.ort_pfad(ort))[:limit]
+        stichwort = argument.casefold()
+        treffer = [m for m in meldungen if stichwort in m["titel"].casefold()]
+        if not treffer:
+            raise LaufzeitFehler(
+                f"Meldung {argument} nicht gefunden.",
+                f"blaulicht neu {ort} oder blaulicht suche {argument} ausführen",
+            )
+        if len(treffer) > 1 and not args.erster:
+            meldung = _waehle(treffer, argument)
+        else:
+            meldung = treffer[0]
+        teile = meldung["kennung"].split("/")
+        detail = _detail_laden(client, teile[0], teile[1])
+
+    out.zeige(detail, _detail_text(detail))
+    return 0
+
+
+def _direkt_detail(client: Client, dienststelle: str, meldung: str) -> dict:
+    try:
+        return _detail_laden(client, dienststelle, meldung)
+    except HttpFehler as fehler:
+        if fehler.status == 404:
+            raise LaufzeitFehler(
+                f"Meldung {dienststelle}/{meldung} nicht gefunden.",
+                f"blaulicht neu <Ort> oder blaulicht suche <Stichwort> ausführen",
+            ) from None
+        raise
+
+
 # --------------------------------------------------------------------- Parser
 
 
@@ -316,6 +408,28 @@ def _bau_parser() -> argparse.ArgumentParser:
     )
     _json_flag(suche)
     suche.set_defaults(funktion=cmd_suche)
+
+    zeige = unter.add_parser(
+        "zeige", help="Volltext einer Meldung über Kennung oder Titelstichwort"
+    )
+    zeige.add_argument(
+        "argument",
+        metavar="KENNUNG|TITELSTICHWORT",
+        help="z. B. 110971/6397111 oder Unfall",
+    )
+    zeige.add_argument("--ort", help="Ort für die Titelsuche, z. B. Heilbronn")
+    zeige.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        metavar="N",
+        help="Suchfenster für das Titelstichwort (Standard 10)",
+    )
+    zeige.add_argument(
+        "--erster", action="store_true", help="bei mehreren Treffern den ersten nehmen"
+    )
+    _json_flag(zeige)
+    zeige.set_defaults(funktion=cmd_zeige)
 
     return parser
 
