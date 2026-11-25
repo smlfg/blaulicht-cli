@@ -432,6 +432,57 @@ def cmd_dienststelle(args, out: Ausgabe) -> int:
     return 0
 
 
+def cmd_watch(args, out: Ausgabe) -> int:
+    """Nur Meldungen, die seit dem letzten Aufruf neu sind."""
+    ort = _ort_holen(args.ort)
+    limit = _limit(args.limit)
+    client = Client()
+    meldungen = _lade_liste(client, parse.ort_pfad(ort))
+    kennungen = [m["kennung"] for m in meldungen]
+
+    zustand = pfade.lade_state()
+    alt = zustand.get(ort)
+    if not isinstance(alt, list):
+        zustand[ort] = kennungen
+        pfade.speichere_state(zustand)
+        objekt = {
+            "ort": ort,
+            "ausgangsstand": True,
+            "anzahl": 0,
+            "gespeichert": len(kennungen),
+            "neu": [],
+        }
+        text = (
+            f"Ausgangsstand gespeichert: {len(kennungen)} Meldungen für {ort}.\n"
+            "Beim nächsten Aufruf werden nur neue Meldungen angezeigt."
+        )
+        out.zeige(objekt, text)
+        return 0
+
+    bekannt = set(alt)
+    neue = [m for m in meldungen if m["kennung"] not in bekannt]
+    zustand[ort] = list(dict.fromkeys([*alt, *kennungen]))
+    pfade.speichere_state(zustand)
+
+    anzeige = neue[:limit]
+    objekt = {
+        "ort": ort,
+        "ausgangsstand": False,
+        "anzahl": len(anzeige),
+        "gespeichert": len(zustand[ort]),
+        "neu": anzeige,
+    }
+    if not anzeige:
+        out.zeige(objekt, "Keine neuen Meldungen seit dem letzten Aufruf.")
+        return 0
+    text = (
+        f"{len(anzeige)} neue Meldungen für {ort} seit dem letzten Aufruf:\n"
+        f"{_liste_text(anzeige)}"
+    )
+    out.zeige(objekt, text)
+    return 0
+
+
 # --------------------------------------------------------------------- Parser
 
 
@@ -532,6 +583,20 @@ def _bau_parser() -> argparse.ArgumentParser:
     )
     _json_flag(dienststelle)
     dienststelle.set_defaults(funktion=cmd_dienststelle)
+
+    watch = unter.add_parser(
+        "watch", help="Nur Meldungen, die seit dem letzten Aufruf neu sind"
+    )
+    watch.add_argument("ort", nargs="?", help="Ort, z. B. Heilbronn")
+    watch.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        metavar="N",
+        help="höchstens N neue Meldungen (Standard 10)",
+    )
+    _json_flag(watch)
+    watch.set_defaults(funktion=cmd_watch)
 
     return parser
 
