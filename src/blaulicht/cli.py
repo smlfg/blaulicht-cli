@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+from difflib import SequenceMatcher
 
 from . import __version__, pfade, parse
 from .client import Client
@@ -133,6 +134,12 @@ def _pruefe_seite(html: str, pfad: str) -> None:
             f"Antwort auf {pfad} ist kein Blaulicht-Seiten-HTML.",
             "später erneut versuchen oder die Adresse prüfen",
         )
+
+
+def _lade_liste_html(client: Client, pfad: str) -> str:
+    html = client.get(pfad)
+    _pruefe_seite(html, pfad)
+    return html
 
 
 def _lade_liste(client: Client, pfad: str, dienststelle: str | None = None) -> list[dict]:
@@ -346,6 +353,85 @@ def _direkt_detail(client: Client, dienststelle: str, meldung: str) -> dict:
         raise
 
 
+def _dienststelle_aufloesen(name: str, eintraege: list[dict]) -> list[dict]:
+    ziel = _namen_normieren(name)
+    exakt = [e for e in eintraege if _namen_normieren(e["name"]) == ziel]
+    if exakt:
+        return exakt[:1]
+    bewertet: list[tuple[float, dict]] = []
+    for eintrag in eintraege:
+        quote = SequenceMatcher(None, ziel, _namen_normieren(eintrag["name"])).ratio()
+        if quote >= 0.6:
+            bewertet.append((quote, eintrag))
+    if not bewertet:
+        return []
+    bewertet.sort(key=lambda paar: paar[0], reverse=True)
+    beste = bewertet[0][0]
+    return [eintrag for quote, eintrag in bewertet if quote >= beste - 0.05]
+
+
+def _waehle_dienststelle(treffer: list[dict], name: str) -> dict:
+    if not _ist_tty(sys.stdin):
+        raise MehrdeutigFehler(
+            f"{len(treffer)} Dienststellen passen zu {name}.",
+            treffer,
+            "den Namen genauer angeben",
+        )
+    for nummer, eintrag in enumerate(treffer, 1):
+        print(f"{nummer}) {eintrag['name']}", file=sys.stderr)
+    while True:
+        print("Nummer wählen: ", end="", file=sys.stderr, flush=True)
+        zeile = sys.stdin.readline()
+        if zeile == "":
+            raise EOFError
+        zeile = zeile.strip()
+        if zeile.isdigit() and 1 <= int(zeile) <= len(treffer):
+            return treffer[int(zeile) - 1]
+        print(f"Bitte eine Zahl von 1 bis {len(treffer)} eingeben.", file=sys.stderr)
+
+
+def cmd_dienststelle(args, out: Ausgabe) -> int:
+    """Dienststelle per Name auflösen und ihre neuesten Meldungen zeigen."""
+    name = (args.name or "").strip()
+    if not name:
+        raise UsageFehler(
+            "Kein Dienststellenname angegeben.",
+            'blaulicht dienststelle "Polizeipräsidium Heilbronn" ausführen',
+        )
+    limit = _limit(args.limit)
+    client = Client()
+    verzeichnis = _lade_liste_html(client, "/blaulicht/dienststellen")
+    eintraege = parse.parse_dienststellen(verzeichnis)
+    if not eintraege:
+        raise NetzFehler(
+            "Das Dienststellenverzeichnis konnte nicht gelesen werden.",
+            "später erneut versuchen oder blaulicht neu <Ort> ausführen",
+        )
+    treffer = _dienststelle_aufloesen(name, eintraege)
+    if not treffer:
+        raise LaufzeitFehler(
+            f"Dienststelle {name} nicht gefunden.",
+            f"blaulicht dienststelle <Name> oder blaulicht neu <Ort> ausführen",
+        )
+    gewaehlt = treffer[0] if len(treffer) == 1 else _waehle_dienststelle(treffer, name)
+
+    meldungen = _lade_liste(
+        client, f"/blaulicht/nr/{gewaehlt['id']}", dienststelle=gewaehlt["name"]
+    )[:limit]
+    objekt = {
+        "dienststelle": {"name": gewaehlt["name"], "id": gewaehlt["id"]},
+        "anzahl": len(meldungen),
+        "meldungen": meldungen,
+    }
+    text = f"{gewaehlt['name']} (Dienststelle {gewaehlt['id']})\nNeueste Meldungen:"
+    if meldungen:
+        text += "\n" + _liste_text(meldungen)
+    else:
+        text += "\nKeine Meldungen gefunden."
+    out.zeige(objekt, text)
+    return 0
+
+
 # --------------------------------------------------------------------- Parser
 
 
@@ -430,6 +516,22 @@ def _bau_parser() -> argparse.ArgumentParser:
     )
     _json_flag(zeige)
     zeige.set_defaults(funktion=cmd_zeige)
+
+    dienststelle = unter.add_parser(
+        "dienststelle", help="Dienststelle per Name auflösen und Meldungen zeigen"
+    )
+    dienststelle.add_argument(
+        "name", metavar="NAME", help='z. B. "Polizeipräsidium Heilbronn"'
+    )
+    dienststelle.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        metavar="N",
+        help="höchstens N Meldungen (Standard 10)",
+    )
+    _json_flag(dienststelle)
+    dienststelle.set_defaults(funktion=cmd_dienststelle)
 
     return parser
 
