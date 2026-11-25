@@ -1,34 +1,76 @@
-# cli-mcp-template
-Project template for CLIs and MCP servers with the shared test suite
+# blaulicht-cli
 
-> **Hinweis:** Die Fabrik, die aus dieser Vorlage Werkzeuge baut (Workflow, UX-Gate, Pipeline), liegt jetzt in [smlfg/software-factory](https://github.com/smlfg/software-factory). Die Vorlage selbst bleibt vorerst hier.
+Polizei-, Feuerwehr- und Zoll-Pressemeldungen von
+[presseportal.de/blaulicht](https://www.presseportal.de/blaulicht) im
+Terminal: neueste Meldungen für einen Ort, Stichwortsuche, Volltext,
+Dienststellen per Name und ein Watch-Modus für neue Meldungen. Kein Login,
+kein API-Key, nur lesende GET-Requests.
 
-## Schritt 0: UX-Spec zuerst
+## Schnellstart
 
-Der komplette Ablauf steht in [agent-learnings/WORKFLOW.md](https://github.com/smlfg/agent-learnings/blob/main/WORKFLOW.md).
+```text
+pipx install git+https://github.com/smlfg/blaulicht-cli
+blaulicht neu Heilbronn
+blaulicht suche Unfall --ort Heilbronn
+blaulicht zeige 110971/6397111
+blaulicht watch Heilbronn
+```
 
-1. Vor jeder Codezeile `docs/UX.md` ausfüllen (Vorlage liegt hier): die 3 wichtigsten Nutzer-Aufgaben als abtippbare Terminal-Sitzungen (pipx-Installation, `<tool> login`, Suche per Name, schreibende Aktion bis zur letzten Seite mit `[j/N]`), dazu alle live erkundeten Formularschritte und Fixtures unter `tests/fixtures/ux/`.
-2. Spec prüfen: `python3 tests/harness/ux_spec.py docs/UX.md`
-3. Gate nach dem Bau (beide müssen grün sein, sonst ist der Build nicht fertig):
-   - `python3 tests/harness/ux_check.py .` (UX-Lint UX01–UX08)
-   - `python3 tests/harness/ux_session.py .` (spielt die Sitzungen im Pseudo-Terminal gegen einen Fake-Server durch und prüft, dass ALLE Formularschritte gesendet werden)
+## Befehle
 
-`tests/harness/` wird unverändert aus agent-learnings übernommen.
+| Befehl | Zweck |
+|---|---|
+| `blaulicht neu [ORT]` | Neueste Blaulicht-Meldungen für einen Ort oder Landkreis |
+| `blaulicht suche STICHWORT [--ort ORT] [--bundesland LAND] [--seit DATUM] [--limit N]` | Titel und Teaser clientseitig filtern |
+| `blaulicht zeige KENNUNG\|TITELSTICHWORT` | Volltext einer Meldung; mehrere Treffer werden im Terminal nummeriert |
+| `blaulicht dienststelle NAME` | Dienststelle per Name auflösen und ihre Meldungen zeigen |
+| `blaulicht watch [ORT]` | Nur Meldungen, die seit dem letzten Aufruf neu sind |
+| `blaulicht config ort ORT` | Standard-Ort dauerhaft speichern (Config mit 0600) |
 
-## Pflichtregel: Bedienbarkeit für Menschen
+Die Kennung einer Meldung ist `Dienststelle/Meldung`, zum Beispiel
+`110971/6397111`. Sie steht in der Listenausgabe und lässt sich direkt an
+`zeige` übergeben. Ein Titelstichwort funktioniert ebenfalls; ist es
+mehrdeutig, fragt `zeige` im Terminal nach einer Nummer. Ohne Terminal wird
+dann die Trefferliste ausgegeben (Exit 2); Agenten nutzen `--erster`.
 
-Jede CLI muss für Menschen bedienbar sein: `login`-Kommando statt nur Env, Namen statt IDs, interaktive Bestätigung im TTY, `--confirm` nur für Agenten, README-Schnellstart.
+## Ausgabe und Optionen
 
-- `login` fragt im Terminal interaktiv (Passwort per getpass) und speichert im Schlüsselbund oder in einer Config-Datei mit 0600; dazu `logout` und `whoami`/`status` ohne Passwort-Ausgabe. Env-Variablen überschreiben die Config (für Agenten).
-- Namen/Freitext positional (`tool book volleyball`, `tool search fahrrad`); mehrere Treffer → nummerierte Auswahl im TTY, ohne TTY Liste + Exit Usage.
-- Schreibende Aktionen: im TTY „… verbindlich? [j/N]“; `--confirm`/`--yes` nur für Agenten; ohne TTY und ohne Flag kein Request.
-- Terminal-Ausgabe lesbar; JSON mit `--json` oder wenn stdout kein Terminal ist.
-- Fehler nennen den nächsten Schritt, keine Tracebacks bei EOF/Strg+C/fehlender optionaler Abhängigkeit.
-- README beginnt mit „Schnellstart“: `pipx install git+https://github.com/smlfg/<repo>`, Login, ein typischer Befehl.
+- Standardmäßig erscheint lesbarer Text. Mit `--json` oder wenn stdout kein
+  Terminal ist, kommt genau ein JSON-Objekt.
+- `--limit N` begrenzt die Trefferzahl, `--seit JJJJ-MM-TT` filtert
+  clientseitig nach Datum.
+- `--version` und `--help` funktionieren ohne Netzzugriff und enden mit Exit 0.
+- Fehler nennen den nächsten sinnvollen Befehl und geben keinen Traceback aus.
+- Die Basis-URL lässt sich für Tests über `BLAULICHT_BASE_URL` überschreiben;
+  `BLAULICHT_HEUTE` setzt das Testdatum.
 
-### Pflicht-QA-Prüfpunkt „Bedienbarkeit für Menschen“
+## Konfiguration und Zwischenspeicher
 
-1. Frisch per `pipx install git+…` installieren, Befehl direkt im PATH aufrufen.
-2. Haupt-Use-Case nur mit `--help` im Pseudo-Terminal (`script -qc "…" /dev/null`) durchspielen: `login` interaktiv, Suche per Name, Bestätigungsfrage mit „N“ → nichts gesendet.
-3. Ohne Login: Fehlermeldung nennt `tool login`.
-4. FAIL, wenn eine Kernaktion nur über Env-Variablen, interne IDs oder `--confirm` erreichbar ist.
+- `blaulicht config ort Heilbronn` speichert den Standard-Ort unter
+  `~/.config/blaulicht-cli/config.json` (Rechte 0600). `BLAULICHT_ORT`
+  überschreibt die Datei.
+- `watch` merkt sich den Stand unter `~/.local/state/blaulicht-cli` (0600).
+- Antworten werden höchstens fünf Minuten unter `~/.cache/blaulicht-cli`
+  (0700) zwischengespeichert; Requests laufen mit höchstens einem pro Sekunde.
+- Der User-Agent nennt das Repo:
+  `blaulicht-cli/0.1 (+https://github.com/smlfg/blaulicht-cli)`.
+
+## Entwicklung
+
+```text
+python3 -m venv scratch/venv
+scratch/venv/bin/pip install -e .
+scratch/venv/bin/pytest -q
+```
+
+Das UX-Gate liegt unverändert in `tests/harness/`:
+
+```text
+python3 tests/harness/ux_check.py . --spec-only
+python3 tests/harness/ux_check.py .
+python3 tests/harness/ux_session.py .
+```
+
+## Lizenz
+
+MIT, Copyright smlfg.
