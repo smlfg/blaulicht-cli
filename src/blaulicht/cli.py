@@ -136,6 +136,23 @@ def _lade_liste(client: Client, pfad: str, dienststelle: str | None = None) -> l
     return parse.parse_liste(html, basis=client.basis, dienststelle=dienststelle)
 
 
+def _detail_laden(client: Client, dienststelle: str, meldung: str) -> dict:
+    """Detailseite laden und als Meldungsobjekt mit Kennung und URL liefern."""
+    pfad = f"/blaulicht/pm/{dienststelle}/{meldung}"
+    html = client.get(pfad)
+    _pruefe_seite(html, pfad)
+    roh = parse.parse_detail(html)
+    return {
+        "kennung": f"{dienststelle}/{meldung}",
+        "titel": roh["titel"],
+        "dienststelle": roh["dienststelle"],
+        "datum": roh["datum"],
+        "zeit": roh["zeit"],
+        "volltext": roh["volltext"],
+        "url": client.basis + pfad,
+    }
+
+
 def _liste_text(meldungen: list[dict]) -> str:
     zeilen: list[str] = []
     for nummer, meldung in enumerate(meldungen, 1):
@@ -166,6 +183,73 @@ def cmd_neu(args, out: Ausgabe) -> int:
         out.zeige(objekt, f"Keine Meldungen für {ort} gefunden. Bitte Ort prüfen.")
         return 0
     text = f"Neueste Blaulicht-Meldungen aus {ort}:\n{_liste_text(meldungen)}"
+    out.zeige(objekt, text)
+    return 0
+
+
+def _seit_filter(meldungen: list[dict], seit: str | None) -> list[dict]:
+    if not seit:
+        return list(meldungen)
+    return [m for m in meldungen if m.get("datum") and m["datum"] >= seit]
+
+
+def _enthaelt_stichwort(meldung: dict, stichwort: str) -> bool:
+    text = f"{meldung.get('titel', '')} {meldung.get('teaser', '')}"
+    return stichwort.casefold() in text.casefold()
+
+
+def _suche_ziel(args) -> tuple[str, str]:
+    """Liefert (Seitenpfad, Anzeigename) für Ort bzw. Bundesland."""
+    if args.bundesland:
+        land = args.bundesland.strip()
+        if not land:
+            raise UsageFehler(
+                "Leeres Bundesland angegeben.",
+                "ein Bundesland wie Baden-Württemberg angeben",
+            )
+        return f"/blaulicht/l/{parse.bundesland_slug(land)}", land
+    ort = _ort_holen(args.ort)
+    return parse.ort_pfad(ort), ort
+
+
+def cmd_suche(args, out: Ausgabe) -> int:
+    """Stichwortsuche über Titel und Teaser, optional im Volltext."""
+    stichwort = (args.stichwort or "").strip()
+    if not stichwort:
+        raise UsageFehler(
+            "Kein Stichwort angegeben.",
+            "blaulicht suche <STICHWORT> [--ort ORT] ausführen",
+        )
+    limit = _limit(args.limit)
+    seit = _datum_pruefen(args.seit) if args.seit else None
+
+    pfad, ziel = _suche_ziel(args)
+    client = Client()
+    meldungen = _seit_filter(_lade_liste(client, pfad), seit)
+
+    treffer: list[dict] = []
+    for meldung in meldungen:
+        passt = _enthaelt_stichwort(meldung, stichwort)
+        if not passt and args.volltext:
+            teile = meldung["kennung"].split("/")
+            if len(teile) == 2:
+                detail = _detail_laden(client, teile[0], teile[1])
+                passt = stichwort.casefold() in detail["volltext"].casefold()
+        if passt:
+            treffer.append(meldung)
+        if len(treffer) >= limit:
+            break
+
+    objekt = {
+        "stichwort": stichwort,
+        "ort": ziel,
+        "anzahl": len(treffer),
+        "treffer": treffer,
+    }
+    if not treffer:
+        out.zeige(objekt, f"Keine Treffer für {stichwort} in {ziel}.")
+        return 0
+    text = f"{len(treffer)} Treffer für {stichwort} in {ziel}:\n{_liste_text(treffer)}"
     out.zeige(objekt, text)
     return 0
 
@@ -209,6 +293,29 @@ def _bau_parser() -> argparse.ArgumentParser:
     )
     _json_flag(neu)
     neu.set_defaults(funktion=cmd_neu)
+
+    suche = unter.add_parser(
+        "suche", help="Stichwortsuche in Titel, Teaser und optional Volltext"
+    )
+    suche.add_argument("stichwort", metavar="STICHWORT", help="Suchbegriff")
+    ziel = suche.add_mutually_exclusive_group()
+    ziel.add_argument("--ort", help="Ort oder Landkreis, z. B. Heilbronn")
+    ziel.add_argument("--bundesland", metavar="LAND", help="z. B. Baden-Württemberg")
+    suche.add_argument(
+        "--seit", metavar="JJJJ-MM-TT", help="nur Meldungen ab diesem Tag"
+    )
+    suche.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        metavar="N",
+        help="höchstens N Treffer (Standard 10)",
+    )
+    suche.add_argument(
+        "--volltext", action="store_true", help="auch im Volltext der Meldungen suchen"
+    )
+    _json_flag(suche)
+    suche.set_defaults(funktion=cmd_suche)
 
     return parser
 
