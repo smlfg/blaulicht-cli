@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blaulicht-cli"
+dynamic = ["version"]
+description = "Polizei-, Feuerwehr- und Zoll-Pressemeldungen von presseportal.de/blaulicht im Terminal"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{name = "smlfg", email = "186922365+smlfg@users.noreply.github.com"}]
+keywords = ["presseportal", "blaulicht", "polizei", "feuerwehr", "zoll", "cli"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Communications",
+]
+dependencies = [
+  "beautifulsoup4>=4.11",
+  "requests>=2.28",
+]
+
+[project.urls]
+Homepage = "https://github.com/smlfg/blaulicht-cli"
+Repository = "https://github.com/smlfg/blaulicht-cli"
+
+[project.scripts]
+blaulicht = "blaulicht.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "blaulicht.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
