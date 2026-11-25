@@ -1,92 +1,160 @@
-# UX-Spec: kurstool
+# UX-Spec: blaulicht
 
-Diese Datei ist die Vorlage für `docs/UX.md` in jedem neuen Repo. Sie wird vor der ersten Codezeile ausgefüllt. Alle Befehle sind so abtippbar, wie ein Mensch sie im Terminal eingibt. Beispielwerte (Tool `kurstool`, Kursnummern, Mails auf `.invalid`) werden durch die echten Werte des Projekts ersetzt.
-
-Ablauf beim Ausfüllen:
-
-1. Website live öffnen und die drei wichtigsten Aufgaben eines Menschen heraussuchen.
-2. Jede Aufgabe als Sitzung mitschreiben: Befehl, Eingabe, erwartete Ausgabe.
-3. Lesende Routen und alle Formularschritte der schreibenden Aktion ergänzen.
-4. Fixtures unter `tests/fixtures/ux/` ablegen.
-5. `python tests/harness/ux_check.py --spec-only` laufen lassen; erst bei grünem UX01 weiterbauen.
+`blaulicht` zeigt Polizei-, Feuerwehr- und Zoll-Pressemeldungen von
+presseportal.de/blaulicht im Terminal. Der Dienst ist öffentlich und
+schreibfrei: Es gibt keine Anmeldung, keine Cookies und keine Aktion, die
+etwas verbindlich auslöst. Alle Befehle sind so abtippbar, wie ein Mensch sie
+im Terminal eingibt.
 
 ## Meta
 
-Das Meta-Objekt benennt den Befehlsnamen im PATH, den Installationsbefehl und alle Umgebungsvariablen. `base_url_env` ist Pflicht, sobald es Routen oder Formsteps gibt. `credential_env` führt dazu, dass das Tool einen `login`-Befehl haben muss.
-
 ```ux-meta
-{"tool": "kurstool",
- "install": "pipx install git+https://github.com/smlfg/kurstool-cli",
- "base_url_env": "KURSTOOL_BASE_URL",
- "env": {"KURSTOOL_STATUSGRUPPE": "studierende"},
- "credential_env": ["KURSTOOL_LOGIN_USER", "KURSTOOL_LOGIN_PASSWORD"]}
+{"tool": "blaulicht",
+ "install": "pipx install git+https://github.com/smlfg/blaulicht-cli",
+ "base_url_env": "BLAULICHT_BASE_URL",
+ "env": {"BLAULICHT_HEUTE": "2026-11-25"}}
 ```
+
+- `BLAULICHT_BASE_URL` ersetzt `https://www.presseportal.de` und wird von der
+  Harness auf den Fake-Server gesetzt.
+- `BLAULICHT_HEUTE` setzt nur für Tests das heutige Datum (`JJJJ-MM-TT`), damit
+  `--seit` und `watch` deterministisch bleiben. Im Alltag wird es nicht
+  gebraucht.
+- Es gibt kein `credential_env`: keine Zugangsdaten, kein `login`, kein
+  `whoami`/`logout`.
 
 ## Sitzungen
 
-Jede Sitzung ist eine Nutzer-Aufgabe. Es müssen mindestens drei sein, darunter Login, Suche per Name und eine schreibende Aktion. `$` ist ein Befehl, `>` eine Eingabe, `<` eine erwartete Ausgabe und `!` der erwartete Exit-Code. Der Installationsbefehl wird von der Harness durch eine lokale Installation in ein frisches venv ersetzt.
+### Installation und erste Meldungen
 
-### Installation und Login
-
-Der Login fragt im Terminal interaktiv nach Benutzer und Passwort. Das Passwort wird nicht angezeigt und nicht gespeichert; die Sitzung landet im Schlüsselbund oder in einer Datei mit Rechten 0600. Die Zugangsdaten stammen aus einem Testkonto, nie aus echten Daten.
+Die Installation per `pipx` legt den Befehl `blaulicht` im PATH ab. Danach
+zeigt `neu` die neuesten Meldungen eines Ortes. Jede Zeile nennt Datum und
+Uhrzeit, das Dienststellen-Kürzel aus dem Titel, die kombinierte Kennung
+`<Dienststelle>/<Meldung>` und darunter den Titel. Fremde Meldungen ohne
+Blaulicht-Bezug (z. B. Unternehmen) werden herausgefiltert.
 
 ```ux-session
-$ pipx install git+https://github.com/smlfg/kurstool-cli
-< kurstool
-$ kurstool login
-< Benutzer:
-> max.mustermann@example.invalid
-< Passwort:
-> geheim
-< Login erfolgreich
+$ pipx install git+https://github.com/smlfg/blaulicht-cli
+$ blaulicht neu Heilbronn
+< Neueste Blaulicht-Meldungen aus Heilbronn:
+< 1) 24.11.2026 13:57 · POL-HN · 110971/6397111
+<    POL-HN: Landkreis Heilbronn: Unfall
+< 2) 24.11.2026 11:23 · POL-HN · 110971/6396898
+<    POL-HN: Neckar-Odenwald-Kreis: Einbruch und Hinweis auf verdächtiges Ansprechen eines Kindes
+< 3) 24.11.2026 09:44 · POL-HN · 110971/6396715
+<    POL-HN: Stadt- und Landkreis Heilbronn: Einbrüche, Unfall nach verbotenem Kraftfahrzeugrennen
+< 4) 24.11.2026 09:04 · POL-HN · 110971/6396663
+<    POL-HN: Dunkle Jahreszeit - Hochsaison für ungebetene Gäste! So machen Sie Einbrechern das Leben schwer
 ! exit 0
 ```
 
-### Kurse nach Namen suchen
+### Stichwortsuche mit Ort
 
-Der Suchbegriff ist positional. Die Ausgabe zeigt Namen und Kursnummer, damit ein Mensch ohne Nachschlagen weiterarbeiten kann.
+Das Stichwort ist positional, der Ort ist eine optionale Angabe. Die Suche
+lädt die Ortsseite und filtert Titel und Teaser clientseitig; dadurch
+funktioniert sie auch ohne die serverseitige Suchroute. Ausgegeben werden nur
+Treffer, die das Stichwort wirklich enthalten.
 
 ```ux-session
-$ kurstool search volleyball
-< 1) Volleyball Anfänger (Kurs 32304)
-< 2) Volleyball Fortgeschritten (Kurs 32305)
+$ blaulicht suche Unfall --ort Heilbronn
+< 2 Treffer für Unfall in Heilbronn:
+< 1) 24.11.2026 13:57 · POL-HN · 110971/6397111
+<    POL-HN: Landkreis Heilbronn: Unfall
+< 2) 24.11.2026 09:44 · POL-HN · 110971/6396715
+<    POL-HN: Stadt- und Landkreis Heilbronn: Einbrüche, Unfall nach verbotenem Kraftfahrzeugrennen
 ! exit 0
 ```
 
-### Kurs verbindlich buchen
+### Meldung im Volltext
 
-Die schreibende Aktion zeigt zuerst Kurs, Ort und Preis. Danach fragt sie mit Default Nein. Erst nach `j` werden alle Formularschritte bis zur endgültigen Bestätigung gesendet. Bei `N` endet der Befehl ohne Request an einen Schritt ohne `before_confirm`.
+`zeige` nimmt die Kennung aus der Liste (`110971/6397111`) oder ein
+Titelstichwort. Bei einer Kennung wird die Detailseite direkt geladen. Bei
+mehreren Treffern zu einem Stichwort folgt im Terminal eine nummerierte
+Auswahl; ohne Terminal wird nur die Liste ausgegeben (Exit 2), mit `--erster`
+wird der erste Treffer genommen.
 
 ```ux-session
-$ kurstool book "Volleyball Anfänger"
-< Kurs: Volleyball Anfänger (32304)
-< Ort: Sporthalle Nord
-< Preis: 25,00 EUR
-< Buchung verbindlich? [j/N]
-> j
-< Buchung bestätigt
-< Bestätigungsnummer: KB-2026-0042
+$ blaulicht zeige 110971/6397111
+< POL-HN: Landkreis Heilbronn: Unfall
+< Polizeipräsidium Heilbronn · 24.11.2026 13:57 · 110971/6397111
+< A6/Neckarsulm: Drei Leichtverletzte bei Unfall zwischen zwei Reisebussen
+< Bei einem Auffahrunfall zwischen zwei Reisebussen und einem Pkw wurden am Dienstagmorgen
+! exit 0
+```
+
+### Neue Meldungen seit dem letzten Aufruf
+
+`watch` merkt sich die zuletzt gesehenen Kennungen unter
+`~/.local/state/blaulicht-cli` (Datei mit Rechten 0600). Beim ersten Aufruf
+wird der Ausgangsstand gespeichert, danach erscheinen nur neue Meldungen.
+
+```ux-session
+$ blaulicht watch Heilbronn
+< Ausgangsstand gespeichert: 4 Meldungen für Heilbronn.
+< Beim nächsten Aufruf werden nur neue Meldungen angezeigt.
+$ blaulicht watch Heilbronn
+< Keine neuen Meldungen seit dem letzten Aufruf.
+! exit 0
+```
+
+### Dienststelle per Name
+
+`dienststelle` löst einen Namen tippfehlertolerant gegen das Verzeichnis
+`/blaulicht/dienststellen` auf und zeigt die neuesten Meldungen dieser
+Dienststelle. Der vollständige Name steht dort im `title`-Attribut der
+Newsroom-Links; Linktext und Gattung allein sind nicht eindeutig.
+
+```ux-session
+$ blaulicht dienststelle "Polizeipräsidium Heilbronn"
+< Polizeipräsidium Heilbronn (Dienststelle 110971)
+< Neueste Meldungen:
+< 1) 24.11.2026 13:57 · POL-HN · 110971/6397111
+<    POL-HN: Landkreis Heilbronn: Unfall
+< 2) 24.11.2026 11:23 · POL-HN · 110971/6396898
+<    POL-HN: Neckar-Odenwald-Kreis: Einbruch und Hinweis auf verdächtiges Ansprechen eines Kindes
+< 3) 24.11.2026 09:44 · POL-HN · 110971/6396715
+<    POL-HN: Stadt- und Landkreis Heilbronn: Einbrüche, Unfall nach verbotenem Kraftfahrzeugrennen
+< 4) 24.11.2026 09:28 · POL-HN · 110971/6396688
+<    POL-HN: Hohenlohekreis: Unfall
+< 5) 24.11.2026 09:04 · POL-HN · 110971/6396663
+<    POL-HN: Dunkle Jahreszeit - Hochsaison für ungebetene Gäste! So machen Sie Einbrechern das Leben schwer
 ! exit 0
 ```
 
 ## Lesende Routen
 
-Hier stehen alle Routen, die die Sitzungen gegen den Fake-Server brauchen. `path` wird ohne Querystring exakt verglichen; `query_contains` ist optional. Der Login ist ein POST, löst aber keine Buchung aus und gehört deshalb zu den lesenden Routen. Die Antwortdateien liegen relativ zum Repo.
+Alle Requests der Sitzungen laufen über `BLAULICHT_BASE_URL`. `path` wird ohne
+Querystring verglichen; `--seit` darf zusätzlich `startDate`/`endDate`
+anhängen, ohne die Route zu ändern. Die Antworten sind aus echten
+Live-Antworten gekürzt und anonymisiert (Kontaktdaten auf `example.invalid`).
 
 ```ux-routes
-[{"method":"POST","path":"/login","response":"tests/fixtures/ux/login_erfolg.html","status":200,"content_type":"text/html; charset=utf-8"},
- {"method":"GET","path":"/kurse","query_contains":"volleyball","response":"tests/fixtures/ux/kurse.html","status":200,"content_type":"text/html; charset=utf-8"},
- {"method":"GET","path":"/kurse/32304","response":"tests/fixtures/ux/kurs_32304.html","status":200,"content_type":"text/html; charset=utf-8"}]
+[{"method":"GET","path":"/blaulicht/r/Heilbronn","response":"tests/fixtures/ux/heilbronn_liste.html","status":200,"content_type":"text/html; charset=utf-8"},
+ {"method":"GET","path":"/blaulicht/pm/110971/6397111","response":"tests/fixtures/ux/meldung_6397111.html","status":200,"content_type":"text/html; charset=utf-8"},
+ {"method":"GET","path":"/blaulicht/dienststellen","response":"tests/fixtures/ux/dienststellen.html","status":200,"content_type":"text/html; charset=utf-8"},
+ {"method":"GET","path":"/blaulicht/nr/110971","response":"tests/fixtures/ux/dienststelle_110971.html","status":200,"content_type":"text/html; charset=utf-8"}]
 ```
 
-## Formularschritte der schreibenden Aktion
+## Keine schreibende Aktion
 
-Die Liste enthält ALLE Requests in Reihenfolge, bis die Buchung endgültig bestätigt ist. `sends` nennt Feldnamen, die im Body vorkommen müssen; ein `*` am Ende erlaubt Präfix-Treffer. `before_confirm: true` ist nur für Schritte erlaubt, die vor der `[j/N]`-Frage laufen und nichts verbindlich auslösen, zum Beispiel das Öffnen des Formulars. `live: erkundet` heißt lesend auf der echten Seite gesehen, `live: synthetisch` heißt nachgebaut und als solches markiert.
+Der Dienst ist rein lesend. Deshalb gibt es bewusst keinen Block
+`ux-formsteps` und keine `credential_env`; UX09 entfällt als SKIP. Es werden
+weder Formulare abgesendet noch Kommentare, Abos oder Alert-Mails erzeugt.
+Die einzigen Requests sind die GET-Routen oben.
 
-```ux-formsteps
-[{"id":"formular_oeffnen","method":"POST","path":"/buchen/32304","sends":["kurs_id"],"response":"tests/fixtures/ux/buchen_formular.html","before_confirm":true,"live":"erkundet"},
- {"id":"teilnehmerdaten","method":"POST","path":"/buchen/32304","sends":["vorname","nachname","email","statusgruppe"],"response":"tests/fixtures/ux/buchen_uebersicht.html","live":"synthetisch"},
- {"id":"verbindlich","method":"POST","path":"/buchen/32304","sends":["bestaetigungstoken"],"response":"tests/fixtures/ux/buchen_bestaetigt.html","final":true,"live":"synthetisch"}]
-```
+## Ausgabe und Fehler
 
-Der letzte Schritt trägt `"final": true`. Fehlt ein Schritt oder endet die Aktion nach dem ersten Request, meldet `ux_check.py` UX08 und `ux_session.py` bricht den Lauf ab. Beide Gates müssen grün sein, bevor der Build als fertig gilt.
+- Im Terminal erscheint lesbarer Text; mit `--json` oder bei einem Pipe-Ausgang
+  steht genau ein JSON-Objekt auf stdout, Hinweise gehen auf stderr.
+- Ein unbekannter Ort liefert eine leere Liste mit dem Hinweis, den Ort zu
+  prüfen (die Website antwortet dort mit 200 und ohne Treffer).
+- Eine unbekannte Kennung nennt als nächsten Schritt
+  `blaulicht neu <Ort>` oder `blaulicht suche <Stichwort>`.
+- Netzwerkfehler nennen den nächsten Schritt und geben keinen Traceback aus.
+- `--version` und `--help` enden mit Exit 0.
+- Die Basis-URL ist über `BLAULICHT_BASE_URL` überschreibbar; der Standard
+  bleibt `https://www.presseportal.de`.
+- Der User-Agent nennt das Repo
+  (`blaulicht-cli/0.1 (+https://github.com/smlfg/blaulicht-cli)`), Requests
+  werden auf höchstens einen pro Sekunde begrenzt und Antworten fünf Minuten
+  unter `~/.cache/blaulicht-cli` (0700) zwischengespeichert.
