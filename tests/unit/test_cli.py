@@ -53,6 +53,16 @@ def test_unbekannte_kennung_ist_laufzeitfehler(fake_server, capsys):
     assert "nicht gefunden" in data["fehler"]
 
 
+def test_geloeschte_kennung_410_ist_laufzeitfehler(fake_server, capsys):
+    code = cli.main(["zeige", "110971/1", "--json"])
+
+    assert code == 1
+    data = _json(capsys)
+    assert data["exit"] == 1
+    assert "nicht gefunden" in data["fehler"]
+    assert "naechster_schritt" in data
+
+
 def test_seit_folgt_folgeseiten_und_reicht_aeltere_treffer(
     fake_server_seit, monkeypatch, capsys
 ):

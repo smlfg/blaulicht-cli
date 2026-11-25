@@ -18,6 +18,8 @@ ROUTES = {
     "/blaulicht/dienststellen": "dienststellen.html",
     "/blaulicht/nr/110971": "dienststelle_110971.html",
 }
+STATUS_ROUTES = {"/blaulicht/pm/110971/1": 410}
+
 SEIT_ROUTES = {
     "/blaulicht/r/Heilbronn": "heilbronn_seit_liste.html",
     "/blaulicht/r/Heilbronn/30": "heilbronn_seit_liste2.html",
@@ -50,7 +52,10 @@ class LokalerServer:
                 anfragen.append(pfad)
                 anfragen_query.append(teile.query)
                 datei = routes.get(pfad)
-                if datei is None:
+                if datei is None and pfad in STATUS_ROUTES:
+                    koerper = b"gone"
+                    self.send_response(STATUS_ROUTES[pfad])
+                elif datei is None:
                     koerper = b"not found"
                     self.send_response(404)
                 else:

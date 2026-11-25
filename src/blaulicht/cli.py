@@ -25,6 +25,7 @@ from .fehler import (
 DATUM_MUSTER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 KENNUNG_ARG = re.compile(r"^(\d+)/(\d+)$")
 MAX_SEITEN = 60
+NICHT_GEFUNDEN_STATUS = {404, 410}
 
 
 # ---------------------------------------------------------------------- Ausgabe
@@ -381,7 +382,7 @@ def _direkt_detail(client: Client, dienststelle: str, meldung: str) -> dict:
     try:
         return _detail_laden(client, dienststelle, meldung)
     except HttpFehler as fehler:
-        if fehler.status == 404:
+        if fehler.status in NICHT_GEFUNDEN_STATUS:
             raise LaufzeitFehler(
                 f"Meldung {dienststelle}/{meldung} nicht gefunden.",
                 f"blaulicht neu <Ort> oder blaulicht suche <Stichwort> ausführen",
